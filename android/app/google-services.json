@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "624369480168",
+    "project_id": "playcontrol-53ec1",
+    "storage_bucket": "playcontrol-53ec1.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:624369480168:android:16c698682013cd733cf45d",
+        "android_client_info": {
+          "package_name": "com.dosx.arcade_manager"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAKQv9xr-26WOg8vrfbXZ8fnYaXzUM6b7I"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
