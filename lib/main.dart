@@ -7,6 +7,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'splash_screen.dart';
+
 // CRITICAL: Remove hardcoded shopId - it causes listeners to monitor wrong Firestore path
 // The shopId must be set dynamically based on the logged-in user's storeCode
 const _shopId = ''; // Empty placeholder - will be set dynamically
@@ -331,7 +333,27 @@ class ArcadeApp extends StatelessWidget {
           ),
         ),
       ),
-      home: const AppRoot(),
+      home: const SplashWrapper(),
+    );
+  }
+}
+
+class SplashWrapper extends StatefulWidget {
+  const SplashWrapper({super.key});
+
+  @override
+  State<SplashWrapper> createState() => _SplashWrapperState();
+}
+
+class _SplashWrapperState extends State<SplashWrapper> {
+  @override
+  Widget build(BuildContext context) {
+    return SplashScreen(
+      onComplete: () {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (context) => const AppRoot()),
+        );
+      },
     );
   }
 }
