@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
+
 import 'dart:math' as math;
 
 class SplashScreen extends StatefulWidget {
   final VoidCallback? onComplete;
-  
+
   const SplashScreen({super.key, this.onComplete});
 
   @override
@@ -68,10 +69,10 @@ class _SplashScreenState extends State<SplashScreen>
               children: [
                 // Background circuit board lines
                 ..._buildCircuitLines(constraints),
-                
+
                 // Background neon icons
                 ..._buildBackgroundIcons(constraints),
-                
+
                 // Main content
                 Center(
                   child: Column(
@@ -79,20 +80,20 @@ class _SplashScreenState extends State<SplashScreen>
                     children: [
                       // Logo
                       _buildLogo(),
-                      
+
                       const SizedBox(height: 30),
-                      
+
                       // Title
                       _buildTitle(),
-                      
+
                       const SizedBox(height: 40),
-                      
+
                       // Subtitle
                       _buildSubtitle(),
                     ],
                   ),
                 ),
-                
+
                 // Progress indicator at bottom
                 Positioned(
                   bottom: 50,
@@ -133,11 +134,7 @@ class _SplashScreenState extends State<SplashScreen>
           ),
         ],
       ),
-      child: const Icon(
-        Icons.videogame_asset,
-        size: 60,
-        color: Colors.white,
-      ),
+      child: const Icon(Icons.videogame_asset, size: 60, color: Colors.white),
     );
   }
 
@@ -271,66 +268,59 @@ class _SplashScreenState extends State<SplashScreen>
   List<Widget> _buildCircuitLines(BoxConstraints constraints) {
     final random = math.Random(42);
     final lines = <Widget>[];
-    
+
     for (int i = 0; i < 8; i++) {
       final x1 = random.nextDouble() * constraints.maxWidth;
       final y1 = random.nextDouble() * constraints.maxHeight;
       final x2 = x1 + (random.nextDouble() - 0.5) * 200;
       final y2 = y1 + (random.nextDouble() - 0.5) * 200;
-      
+
       lines.add(
         Positioned(
           left: x1,
           top: y1,
           child: CustomPaint(
-            size: Size(
-              (x2 - x1).abs(),
-              (y2 - y1).abs(),
-            ),
+            size: Size((x2 - x1).abs(), (y2 - y1).abs()),
             painter: CircuitLinePainter(),
           ),
         ),
       );
     }
-    
+
     return lines;
   }
 
   List<Widget> _buildBackgroundIcons(BoxConstraints constraints) {
     final icons = [
-      Icons.ghost_outlined,
+      Icons.sports_esports_outlined,
       Icons.diamond_outlined,
       Icons.key_outlined,
       Icons.videogame_asset_outlined,
       Icons.headphones_outlined,
     ];
-    
+
     final random = math.Random(123);
     final bgIcons = <Widget>[];
-    
+
     for (int i = 0; i < 12; i++) {
       final icon = icons[random.nextInt(icons.length)];
       final x = random.nextDouble() * constraints.maxWidth;
       final y = random.nextDouble() * constraints.maxHeight;
       final size = 20.0 + random.nextDouble() * 20;
       final opacity = 0.1 + random.nextDouble() * 0.2;
-      
+
       bgIcons.add(
         Positioned(
           left: x,
           top: y,
           child: Opacity(
             opacity: opacity,
-            child: Icon(
-              icon,
-              size: size,
-              color: const Color(0xFF6C63FF),
-            ),
+            child: Icon(icon, size: size, color: const Color(0xFF6C63FF)),
           ),
         ),
       );
     }
-    
+
     return bgIcons;
   }
 }
