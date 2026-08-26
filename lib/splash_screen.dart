@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-
 import 'dart:math' as math;
+import 'dart:async';
 
 class SplashScreen extends StatefulWidget {
   final VoidCallback? onComplete;
@@ -65,6 +65,18 @@ class _SplashScreenState extends State<SplashScreen>
         ),
         child: LayoutBuilder(
           builder: (context, constraints) {
+            final screenWidth = constraints.maxWidth;
+            final screenHeight = constraints.maxHeight;
+            final isSmallScreen = screenHeight < 600;
+            final isVerySmallScreen = screenHeight < 400;
+            
+            // Responsive sizes
+            final logoSize = isVerySmallScreen ? 60.0 : (isSmallScreen ? 80.0 : 120.0);
+            final titleFontSize = isVerySmallScreen ? 20.0 : (isSmallScreen ? 26.0 : 32.0);
+            final subtitleFontSize = isVerySmallScreen ? 12.0 : (isSmallScreen ? 15.0 : 18.0);
+            final verticalSpacing = isVerySmallScreen ? 15.0 : (isSmallScreen ? 25.0 : 40.0);
+            final bottomSpacing = isVerySmallScreen ? 30.0 : 50.0;
+            
             return Stack(
               children: [
                 // Background circuit board lines
@@ -75,28 +87,30 @@ class _SplashScreenState extends State<SplashScreen>
 
                 // Main content
                 Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      // Logo
-                      _buildLogo(),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        // Logo
+                        _buildLogo(logoSize),
 
-                      const SizedBox(height: 30),
+                        SizedBox(height: verticalSpacing * 0.75),
 
-                      // Title
-                      _buildTitle(),
+                        // Title
+                        _buildTitle(titleFontSize),
 
-                      const SizedBox(height: 40),
+                        SizedBox(height: verticalSpacing),
 
-                      // Subtitle
-                      _buildSubtitle(),
-                    ],
+                        // Subtitle
+                        _buildSubtitle(subtitleFontSize),
+                      ],
+                    ),
                   ),
                 ),
 
                 // Progress indicator at bottom
                 Positioned(
-                  bottom: 50,
+                  bottom: bottomSpacing,
                   left: 20,
                   right: 20,
                   child: _buildProgressIndicator(),
@@ -109,10 +123,10 @@ class _SplashScreenState extends State<SplashScreen>
     );
   }
 
-  Widget _buildLogo() {
+  Widget _buildLogo(double size) {
     return Container(
-      width: 120,
-      height: 120,
+      width: size,
+      height: size,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         gradient: const LinearGradient(
@@ -134,11 +148,11 @@ class _SplashScreenState extends State<SplashScreen>
           ),
         ],
       ),
-      child: const Icon(Icons.videogame_asset, size: 60, color: Colors.white),
+      child: Icon(Icons.videogame_asset, size: size * 0.5, color: Colors.white),
     );
   }
 
-  Widget _buildTitle() {
+  Widget _buildTitle(double fontSize) {
     return ShaderMask(
       shaderCallback: (bounds) => const LinearGradient(
         colors: [
@@ -147,10 +161,10 @@ class _SplashScreenState extends State<SplashScreen>
           Color(0xFFFFD700), // Gold
         ],
       ).createShader(bounds),
-      child: const Text(
+      child: Text(
         'PlayControl',
         style: TextStyle(
-          fontSize: 32,
+          fontSize: fontSize,
           fontWeight: FontWeight.w900,
           letterSpacing: 2,
           color: Colors.white,
@@ -171,11 +185,11 @@ class _SplashScreenState extends State<SplashScreen>
     );
   }
 
-  Widget _buildSubtitle() {
+  Widget _buildSubtitle(double fontSize) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        _buildArrowIcon(Icons.arrow_back_ios),
+        _buildArrowIcon(Icons.arrow_back_ios, fontSize * 0.9),
         const SizedBox(width: 10),
         ShaderMask(
           shaderCallback: (bounds) => const LinearGradient(
@@ -184,10 +198,10 @@ class _SplashScreenState extends State<SplashScreen>
               Color(0xFFFFA500), // Orange gold
             ],
           ).createShader(bounds),
-          child: const Text(
+          child: Text(
             'ArcadeManager',
             style: TextStyle(
-              fontSize: 18,
+              fontSize: fontSize,
               fontWeight: FontWeight.w700,
               letterSpacing: 3,
               color: Colors.white,
@@ -202,21 +216,21 @@ class _SplashScreenState extends State<SplashScreen>
           ),
         ),
         const SizedBox(width: 10),
-        _buildArrowIcon(Icons.arrow_forward_ios),
+        _buildArrowIcon(Icons.arrow_forward_ios, fontSize * 0.9),
       ],
     );
   }
 
-  Widget _buildArrowIcon(IconData icon) {
+  Widget _buildArrowIcon(IconData icon, double size) {
     return Icon(
       icon,
       color: const Color(0xFFFFD700),
-      size: 16,
+      size: size,
       shadows: [
-        const Shadow(
-          color: Color(0xFFFFD700),
+        Shadow(
+          color: const Color(0xFFFFD700),
           blurRadius: 10,
-          offset: Offset(0, 0),
+          offset: const Offset(0, 0),
         ),
       ],
     );
@@ -292,11 +306,11 @@ class _SplashScreenState extends State<SplashScreen>
 
   List<Widget> _buildBackgroundIcons(BoxConstraints constraints) {
     final icons = [
-      Icons.sports_esports_outlined,
+      Icons.videogame_asset_outlined,
       Icons.diamond_outlined,
       Icons.key_outlined,
-      Icons.videogame_asset_outlined,
       Icons.headphones_outlined,
+      Icons.casino_outlined,
     ];
 
     final random = math.Random(123);

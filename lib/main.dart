@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -615,9 +616,21 @@ class Invoice {
     cafeLines: (m['cafeLines'] as List<dynamic>)
         .map((e) => OrderLine.fromMap(e as Map<String, dynamic>))
         .toList(),
-    createdAt: m['createdAt'] != null ? DateTime.parse(m['createdAt'] as String) : null,
+    createdAt: _parseDateTime(m['createdAt']),
     createdBy: m['createdBy'] as String?, // CRITICAL: Read createdBy field
   );
+
+  static DateTime? _parseDateTime(dynamic value) {
+    if (value == null) return null;
+    if (value is DateTime) return value as DateTime;
+    if (value is String) return DateTime.parse(value as String);
+    // Handle Firestore Timestamp if needed
+    if (value is Map) {
+      // Handle Firestore Timestamp
+      return DateTime.fromMillisecondsSinceEpoch((value['seconds'] as int) * 1000 + ((value['nanoseconds'] as int) ~/ 1000000));
+    }
+    return null;
+  }
 
   Map<String, dynamic> toMap() => {
     'id': id,
@@ -634,7 +647,7 @@ class Invoice {
     'mode': mode.name,
     'cafeLines': cafeLines.map((e) => e.toMap()).toList(),
     'createdAt': createdAt?.toIso8601String(),
-    'createdBy': createdBy, // CRITICAL: Include createdBy field in Firestore
+    'createdBy': createdBy, // Include createdBy field
   };
 }
 
@@ -1580,7 +1593,7 @@ class PosStore extends ChangeNotifier {
       }
 
       // Remove from alarmed set after some time to allow re-alarm
-      Future.delayed(const Duration(minutes: 5), () {
+      Timer(const Duration(minutes: 5), () {
         _alarmedDevices.remove(deviceId);
         _alarmTimestamps.remove(deviceId);
       });
@@ -2226,7 +2239,27 @@ class PosStore extends ChangeNotifier {
     DateTime? endedAt,
     double discount = 0,
   }) {
-    final session = device.session!;
+    final session = device.session;
+    if (session == null) {
+      // Return a default invoice if no session exists
+      return Invoice(
+        id: '',
+        deviceName: device.name,
+        customer: '',
+        from: DateTime.now(),
+        to: DateTime.now(),
+        billedMinutes: 0,
+        timeCost: 0,
+        cafeCost: 0,
+        discount: 0,
+        total: 0,
+        staffName: 'system',
+        mode: PlayMode.single,
+        cafeLines: const [],
+        createdAt: DateTime.now(),
+        createdBy: 'system',
+      );
+    }
     final end = endedAt ?? DateTime.now();
     final elapsed = end.difference(session.startedAt);
 
@@ -6404,7 +6437,7 @@ class DevicesPage extends StatelessWidget {
             crossAxisCount: cols,
             crossAxisSpacing: 12,
             mainAxisSpacing: 12,
-            childAspectRatio: w >= 1280 ? 1.18 : 1.05,
+            childAspectRatio: w >= 1280 ? 1.0 : 0.9,
           ),
           itemCount: store.devices.length,
           itemBuilder: (_, i) => DeviceCard(device: store.devices[i]),
@@ -6453,8 +6486,9 @@ class DeviceCard extends StatelessWidget {
               : AppColors.border,
         ),
       ),
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(12),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
           Row(
             children: [
@@ -6463,14 +6497,14 @@ class DeviceCard extends StatelessWidget {
                   device.name,
                   style: const TextStyle(
                     fontWeight: FontWeight.w800,
-                    fontSize: 16,
+                    fontSize: 15,
                   ),
                 ),
               ),
               _StatusBadge(busy: busy),
             ],
           ),
-          const Spacer(),
+          const SizedBox(height: 12),
           FittedBox(
             child: Text(
               busy && session.customDurationMinutes != null
@@ -6483,7 +6517,7 @@ class DeviceCard extends StatelessWidget {
                     )
                   : formatElapsed(elapsed),
               style: TextStyle(
-                fontSize: 42,
+                fontSize: 36,
                 fontWeight: FontWeight.w800,
                 letterSpacing: 2,
                 height: 1,
@@ -6498,7 +6532,7 @@ class DeviceCard extends StatelessWidget {
             ),
           ),
           if (busy) ...[
-            const SizedBox(height: 6),
+            const SizedBox(height: 4),
             ClipRRect(
               borderRadius: BorderRadius.circular(4),
               child: LinearProgressIndicator(
@@ -6509,19 +6543,19 @@ class DeviceCard extends StatelessWidget {
                             double.infinity,
                           )
                     : (elapsed.inSeconds % 3600) / 3600,
-                minHeight: 4,
+                minHeight: 3,
                 backgroundColor: AppColors.border,
                 color: AppColors.purple,
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             Text(
               'بدأ ${formatClock(session.startedAt)}  ·  ${session.mode.label}'
               '${session.customDurationMinutes != null ? '  ·  ${session.customDurationMinutes} دقيقة' : ''}',
-              style: const TextStyle(color: AppColors.muted, fontSize: 12),
+              style: const TextStyle(color: AppColors.muted, fontSize: 11),
             ),
           ] else ...[
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
             _ModeSelector(
               mode: device.preferredMode,
               singleRate: device.singleRate,
@@ -6532,7 +6566,7 @@ class DeviceCard extends StatelessWidget {
               onChanged: (m) => store.setPreferredMode(device, m),
             ),
           ],
-          const Spacer(),
+          const SizedBox(height: 12),
           if (busy)
             Row(
               children: [
@@ -6542,20 +6576,20 @@ class DeviceCard extends StatelessWidget {
                     style: const TextStyle(
                       color: AppColors.green,
                       fontWeight: FontWeight.w800,
-                      fontSize: 20,
+                      fontSize: 18,
                     ),
                   )
                 else
                   const Text(
                     '—',
-                    style: TextStyle(color: AppColors.faint, fontSize: 20),
+                    style: TextStyle(color: AppColors.faint, fontSize: 18),
                   ),
                 const Spacer(),
                 if (session.cafeQty > 0)
                   Container(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 4,
+                      horizontal: 8,
+                      vertical: 3,
                     ),
                     decoration: BoxDecoration(
                       color: const Color(0x2234D399),
@@ -6565,7 +6599,7 @@ class DeviceCard extends StatelessWidget {
                       '${session.cafeQty} طلب كافيه',
                       style: const TextStyle(
                         color: AppColors.cyan,
-                        fontSize: 11,
+                        fontSize: 10,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -6575,9 +6609,9 @@ class DeviceCard extends StatelessWidget {
           else
             Text(
               '0 ${store.currency}',
-              style: const TextStyle(color: AppColors.faint, fontSize: 18),
+              style: const TextStyle(color: AppColors.faint, fontSize: 16),
             ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           if (busy)
             Column(
               children: [
@@ -6590,7 +6624,7 @@ class DeviceCard extends StatelessWidget {
                         onTap: () => showCheckoutDialog(context, device),
                       ),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
                     Expanded(
                       child: _ActionBtn(
                         label: '+ طلب',
@@ -6601,7 +6635,7 @@ class DeviceCard extends StatelessWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
                 _ActionBtn(
                   label: 'نقل الجلسة',
                   color: AppColors.orange,
