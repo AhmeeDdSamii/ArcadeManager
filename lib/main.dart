@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'splash_screen.dart';
 
@@ -941,6 +942,11 @@ class CloudSync {
         );
   }
 
+  Stream<DocumentSnapshot> watchStoreAuth(String storeCode) {
+    if (!online) return const Stream.empty();
+    return _storeDoc(storeCode).snapshots();
+  }
+
   Stream<List<Device>> watchDevices(String storeCode) {
     if (!online) return const Stream.empty();
     return _devicesCol(storeCode).snapshots().map((snapshot) => snapshot.docs.map((doc) {
@@ -1369,6 +1375,7 @@ class PosStore extends ChangeNotifier {
   StreamSubscription<List<Invoice>>? _invoicesSub;
   StreamSubscription<List<CafeItem>>? _inventorySub;
   StreamSubscription<Map<String, dynamic>?>? _settingsSub;
+  StreamSubscription<DocumentSnapshot>? _storeAuthSub;
   bool _applyingRemote = false;
   bool _ready = false; // CRITICAL: Made accessible for immediate startup
   
@@ -1378,7 +1385,7 @@ class PosStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  String shopName = 'Dos X';
+  String shopName = '';
   String currency = 'ج';
   String adminPin = '1234';
   String? storeCode;
@@ -1507,17 +1514,99 @@ class PosStore extends ChangeNotifier {
   final List<LoginAuditEntry> loginLogs = [];
 
   int get activeCount => devices.where((d) => d.isBusy).length;
-  int get sessionsToday => invoices.length + activeCount;
-  double get todayRevenue => invoices.fold(0.0, (a, i) => a + i.total);
-  double get timeRevenue => invoices.fold(0.0, (a, i) => a + i.timeCost);
-  double get cafeRevenue => invoices.fold(0.0, (a, i) => a + i.cafeCost);
-  double get discountsTotal => invoices.fold(0.0, (a, i) => a + i.discount);
-  double get expensesTotal => expenses.fold(0.0, (a, e) => a + e.amount);
+  
+  int get sessionsToday {
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final todayEnd = todayStart.add(const Duration(days: 1));
+    
+    final todayInvoices = invoices.where((inv) {
+      final createdAt = inv.createdAt ?? inv.from;
+      return createdAt.isAfter(todayStart) && createdAt.isBefore(todayEnd);
+    }).toList();
+    
+    return todayInvoices.length + activeCount;
+  }
+  
+  double get todayRevenue {
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final todayEnd = todayStart.add(const Duration(days: 1));
+    
+    return invoices.fold(0.0, (sum, inv) {
+      final createdAt = inv.createdAt ?? inv.from;
+      if (createdAt.isAfter(todayStart) && createdAt.isBefore(todayEnd)) {
+        return sum + inv.total;
+      }
+      return sum;
+    });
+  }
+  double get timeRevenue {
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final todayEnd = todayStart.add(const Duration(days: 1));
+    
+    return invoices.fold(0.0, (sum, inv) {
+      final createdAt = inv.createdAt ?? inv.from;
+      if (createdAt.isAfter(todayStart) && createdAt.isBefore(todayEnd)) {
+        return sum + inv.timeCost;
+      }
+      return sum;
+    });
+  }
+  
+  double get cafeRevenue {
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final todayEnd = todayStart.add(const Duration(days: 1));
+    
+    return invoices.fold(0.0, (sum, inv) {
+      final createdAt = inv.createdAt ?? inv.from;
+      if (createdAt.isAfter(todayStart) && createdAt.isBefore(todayEnd)) {
+        return sum + inv.cafeCost;
+      }
+      return sum;
+    });
+  }
+  
+  double get discountsTotal {
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final todayEnd = todayStart.add(const Duration(days: 1));
+    
+    return invoices.fold(0.0, (sum, inv) {
+      final createdAt = inv.createdAt ?? inv.from;
+      if (createdAt.isAfter(todayStart) && createdAt.isBefore(todayEnd)) {
+        return sum + inv.discount;
+      }
+      return sum;
+    });
+  }
+  
+  double get expensesTotal {
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final todayEnd = todayStart.add(const Duration(days: 1));
+    
+    return expenses.fold(0.0, (sum, e) {
+      if (e.at.isAfter(todayStart) && e.at.isBefore(todayEnd)) {
+        return sum + e.amount;
+      }
+      return sum;
+    });
+  }
   double get cogs {
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final todayEnd = todayStart.add(const Duration(days: 1));
+    
     final sold = <String, int>{};
     for (final inv in invoices) {
-      for (final line in inv.cafeLines) {
-        sold[line.itemId] = (sold[line.itemId] ?? 0) + line.qty;
+      final createdAt = inv.createdAt ?? inv.from;
+      if (createdAt.isAfter(todayStart) && createdAt.isBefore(todayEnd)) {
+        for (final line in inv.cafeLines) {
+          sold[line.itemId] = (sold[line.itemId] ?? 0) + line.qty;
+        }
       }
     }
     var total = 0.0;
@@ -1681,6 +1770,22 @@ class PosStore extends ChangeNotifier {
       }
     });
     
+    // Listen to storeAuth changes in real-time for expiry date updates
+    _storeAuthSub = _sync.watchStoreAuth(storeCode!).listen((snapshot) {
+      if (_applyingRemote) return;
+      if (snapshot.exists && snapshot.data() != null) {
+        final data = snapshot.data() as Map<String, dynamic>;
+        if (data['expiryDate'] != null) {
+          final newExpiryDate = DateTime.parse(data['expiryDate'] as String);
+          if (expiryDate == null || expiryDate!.isAtSameMomentAs(newExpiryDate) == false) {
+            expiryDate = newExpiryDate;
+            notifyListeners();
+            debugPrint('Expiry date updated in real-time: $newExpiryDate');
+          }
+        }
+      }
+    });
+    
     // Also set up state and logs listeners with the correct storeCode
     _stateSub = _sync.watchState(storeCode!).listen(_onRemoteState);
     _logsSub = _sync.watchLoginLogs(storeCode!).listen((logs) {
@@ -1696,10 +1801,12 @@ class PosStore extends ChangeNotifier {
     _invoicesSub?.cancel();
     _inventorySub?.cancel();
     _settingsSub?.cancel();
+    _storeAuthSub?.cancel();
     _devicesSub = null;
     _invoicesSub = null;
     _inventorySub = null;
     _settingsSub = null;
+    _storeAuthSub = null;
   }
 
   void _mergeDevices(List<Device> remoteDevices) {
@@ -1773,7 +1880,7 @@ class PosStore extends ChangeNotifier {
 
   void _mergeSettings(Map<String, dynamic> remoteSettings) {
     // Safe merge: update settings from remote
-    if (remoteSettings['shopName'] != null) {
+    if (remoteSettings['shopName'] != null && (remoteSettings['shopName'] as String).isNotEmpty) {
       shopName = remoteSettings['shopName'] as String;
     }
     if (remoteSettings['currency'] != null) {
@@ -1804,7 +1911,7 @@ class PosStore extends ChangeNotifier {
   }
 
   void _initCleanLocal() {
-    shopName = 'Dos X';
+    shopName = '';
     currency = 'ج';
     adminPin = '1234';
     activeRole = null;
@@ -2140,7 +2247,7 @@ class PosStore extends ChangeNotifier {
   }
 
   void setShop({String? name, String? currencySymbol}) {
-    if (name != null) shopName = name;
+    if (name != null && name.isNotEmpty) shopName = name;
     if (currencySymbol != null) currency = currencySymbol;
     _persist();
     
@@ -2455,9 +2562,8 @@ class PosStore extends ChangeNotifier {
   }
 
   Future<String?> closeShift() async {
-    if (devices.any((d) => d.isBusy)) {
-      return 'لا يمكن تقفيل اليوم وهناك أجهزة شغّالة';
-    }
+    // Allow workers to close shift even with active sessions
+    // Sessions will continue running normally
 
     if (isWorker) {
       await lockWorkerShift();
@@ -2467,23 +2573,68 @@ class PosStore extends ChangeNotifier {
       return null;
     }
 
+    // Owner still needs to close all sessions before closing the day
+    if (devices.any((d) => d.isBusy)) {
+      return 'لا يمكن تقفيل اليوم وهناك أجهزة شغّالة';
+    }
+
+    // Calculate today's date range for closing shift
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final todayEnd = todayStart.add(const Duration(days: 1));
+    
+    // Filter today's invoices and expenses
+    final todayInvoices = invoices.where((inv) {
+      final createdAt = inv.createdAt ?? inv.from;
+      return createdAt.isAfter(todayStart) && createdAt.isBefore(todayEnd);
+    }).toList();
+    
+    final todayExpenses = expenses.where((e) {
+      return e.at.isAfter(todayStart) && e.at.isBefore(todayEnd);
+    }).toList();
+    
+    // Calculate today's totals
+    final todayTimeRevenue = todayInvoices.fold(0.0, (sum, inv) => sum + inv.timeCost);
+    final todayCafeRevenue = todayInvoices.fold(0.0, (sum, inv) => sum + inv.cafeCost);
+    final todayDiscounts = todayInvoices.fold(0.0, (sum, inv) => sum + inv.discount);
+    final todayCollected = todayInvoices.fold(0.0, (sum, inv) => sum + inv.total);
+    final todayExpensesTotal = todayExpenses.fold(0.0, (sum, e) => sum + e.amount);
+    
+    // Calculate COGS for today
+    final sold = <String, int>{};
+    for (final inv in todayInvoices) {
+      for (final line in inv.cafeLines) {
+        sold[line.itemId] = (sold[line.itemId] ?? 0) + line.qty;
+      }
+    }
+    var todayCogs = 0.0;
+    for (final item in cafeItems) {
+      todayCogs += (sold[item.id] ?? 0) * item.buy;
+    }
+    
     closedShifts.insert(
       0,
       ClosedShift(
         at: DateTime.now(),
-        invoices: invoices.length,
-        timeRevenue: timeRevenue,
-        cafeRevenue: cafeRevenue,
-        discounts: discountsTotal,
-        collected: todayRevenue,
-        expenses: expensesTotal,
-        net: netProfit,
+        invoices: todayInvoices.length,
+        timeRevenue: todayTimeRevenue,
+        cafeRevenue: todayCafeRevenue,
+        discounts: todayDiscounts,
+        collected: todayCollected,
+        expenses: todayExpensesTotal,
+        net: todayCollected - todayCogs - todayExpensesTotal,
       ),
     );
     // CRITICAL: Owner close day should NOT be logged as shift end - owner is not a worker
     // await _logShift(ShiftEvent.shiftEnd); // REMOVED - Owner close day is not a shift end
-    invoices.clear();
-    expenses.clear();
+    // Remove only today's invoices and expenses
+    invoices.removeWhere((inv) {
+      final createdAt = inv.createdAt ?? inv.from;
+      return createdAt.isAfter(todayStart) && createdAt.isBefore(todayEnd);
+    });
+    expenses.removeWhere((e) {
+      return e.at.isAfter(todayStart) && e.at.isBefore(todayEnd);
+    });
     await logout();
     await _persist();
     return null;
@@ -2889,7 +3040,7 @@ class PosStore extends ChangeNotifier {
           .get();
       if (settingsDoc.exists) {
         final data = settingsDoc.data()!;
-        if (data['shopName'] != null) {
+        if (data['shopName'] != null && (data['shopName'] as String).isNotEmpty) {
           shopName = data['shopName'] as String;
         }
         if (data['currency'] != null) {
@@ -3040,7 +3191,7 @@ class PosStore extends ChangeNotifier {
     final storeAuth = await _sync.getStoreAuth(storeCodeInput);
     if (storeAuth == null) return false;
 
-    // Check subscription expiry
+    // Check subscription expiry - workers cannot login if subscription is expired
     if (storeAuth.expiryDate != null &&
         DateTime.now().isAfter(storeAuth.expiryDate!)) {
       expiryDate = storeAuth.expiryDate;
@@ -3378,7 +3529,9 @@ String formatClock(DateTime t) {
   final m = t.minute.toString().padLeft(2, '0');
   final h12 = h % 12 == 0 ? 12 : h % 12;
   final ampm = h >= 12 ? 'PM' : 'AM';
-  return '$ampm ${h12.toString().padLeft(2, '0')}:$m';
+  final day = t.day;
+  final month = t.month;
+  return '$ampm ${h12.toString().padLeft(2, '0')}:$m - $day/$month';
 }
 
 String formatDate(DateTime t) {
@@ -4738,7 +4891,7 @@ class _WorkerLoginScreenState extends State<WorkerLoginScreen> {
       return;
     }
 
-    // Check subscription expiry after successful login
+    // Workers get subscription expired screen if subscription is expired
     if (store.isSubscriptionExpired) {
       Navigator.pop(context);
       Navigator.pushReplacement(
@@ -5021,7 +5174,8 @@ class _StoreCodeLoginScreenState extends State<StoreCodeLoginScreen> {
 
     if (!mounted) return;
 
-    // Check subscription expiry
+    // Owner can access even with expired subscription
+    // Will show subscription expired screen in UI if needed
     if (store.isSubscriptionExpired) {
       Navigator.pushReplacement(
         context,
@@ -5721,14 +5875,38 @@ class SubscriptionExpiredScreen extends StatelessWidget {
               ),
               const SizedBox(height: 20),
               const Text(
-                'انتهت مدة اشتراكك',
+                'لقد انتهى اشتراكك',
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
               ),
               const SizedBox(height: 8),
               const Text(
-                'يرجى التواصل مع الدعم للتجديد',
+                'يرجى تجديد الاشتراك لتجديد الاشتراك يرجى التواصل مع المطور',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: AppColors.muted),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.phone, color: AppColors.green, size: 16),
+                  const SizedBox(width: 8),
+                  InkWell(
+                    onTap: () async {
+                      final Uri whatsappUri = Uri.parse('https://wa.me/201555685807');
+                      if (await canLaunchUrl(whatsappUri)) {
+                        await launchUrl(whatsappUri);
+                      }
+                    },
+                    child: const Text(
+                      '01555685807',
+                      style: TextStyle(
+                        color: AppColors.green,
+                        fontWeight: FontWeight.w700,
+                        decoration: TextDecoration.underline,
+                      ),
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 24),
               ElevatedButton(
@@ -6047,8 +6225,7 @@ class _Brand extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const PlayControlTitle(fontSize: 18),
-            if (store.shopName.isNotEmpty &&
-                store.shopName != AppBranding.name) ...[
+            if (store.shopName.isNotEmpty) ...[
               const SizedBox(height: 2),
               Text(
                 store.shopName,
@@ -7978,13 +8155,25 @@ class InvoicesPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final store = PosScope.of(context);
     final admin = store.isAdmin;
+    
+    // Calculate today's date range
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final todayEnd = todayStart.add(const Duration(days: 1));
+    
+    // Filter invoices for today
+    final todayInvoices = store.invoices.where((inv) {
+      final createdAt = inv.createdAt ?? inv.from;
+      return createdAt.isAfter(todayStart) && createdAt.isBefore(todayEnd);
+    }).toList();
+    
     return Padding(
       padding: const EdgeInsets.all(16),
       child: _Panel(
         title: admin ? 'فواتير اليوم' : 'جلسات اليوم',
         subtitle: admin
-            ? '${store.money(store.todayRevenue)} — ${store.invoices.length} فواتير'
-            : '${store.invoices.length} جلسة منتهية',
+            ? '${store.money(store.todayRevenue)} — ${todayInvoices.length} فواتير'
+            : '${todayInvoices.length} جلسة منتهية',
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -8047,7 +8236,7 @@ class InvoicesPage extends StatelessWidget {
             ),
             const Divider(color: AppColors.border, height: 1),
             Expanded(
-              child: store.invoices.isEmpty
+              child: todayInvoices.isEmpty
                   ? Padding(
                       padding: const EdgeInsets.all(32),
                       child: Center(
@@ -8060,11 +8249,11 @@ class InvoicesPage extends StatelessWidget {
                       ),
                     )
                   : ListView.separated(
-                      itemCount: store.invoices.length,
+                      itemCount: todayInvoices.length,
                       separatorBuilder: (_, _) =>
                           const Divider(color: AppColors.border, height: 1),
                       itemBuilder: (_, i) {
-                        final inv = store.invoices[i];
+                        final inv = todayInvoices[i];
                         return _TableRow(
                           cells: admin
                               ? [
